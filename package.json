@@ -1,0 +1,38 @@
+{
+  "name": "@arraypress/security-headers",
+  "version": "1.0.0",
+  "description": "Security response headers for Hono — CSP, HSTS, X-Frame-Options, Referrer-Policy, Permissions-Policy. Strict by default.",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "types": "./src/index.d.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "keywords": [
+    "hono",
+    "security",
+    "csp",
+    "hsts",
+    "headers",
+    "clickjacking",
+    "cloudflare-workers"
+  ],
+  "author": "David Sherlock",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/arraypress/security-headers"
+  },
+  "peerDependencies": {
+    "hono": "^4.12.12"
+  }
+}
