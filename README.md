@@ -130,6 +130,46 @@ return new Response(html, {
 });
 ```
 
+## Static sites — `buildHeaders` and `headersFile`
+
+A static site has no request handler to hang middleware off. On a Cloudflare
+static-assets Worker, adding one means a `main` script — which makes every
+request billable. `_headers` does the same job at the edge, for free.
+
+```ts
+import { buildHeaders, headersFile } from '@arraypress/security-headers';
+
+// The same config and defaults as `securityHeaders()`, as a plain object.
+const headers = buildHeaders({ csp: { scriptSrc: ["'self'"] } });
+return new Response(body, { headers });
+```
+
+```ts
+// scripts/build-headers.ts — run after your static build.
+import { writeFileSync } from 'node:fs';
+
+writeFileSync('dist/_headers', headersFile({ xFrameOptions: 'DENY' }));
+```
+
+Which writes:
+
+```
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Content-Security-Policy: default-src 'self'; …
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+```
+
+Pass `{ path: '/admin/*' }` to scope a block. Note Cloudflare caps a `_headers`
+file at 100 rules — one path pattern costs one rule regardless of how many
+headers it carries.
+
+`buildHeaders` is asserted in the test suite to produce exactly what the
+middleware sets, so the two paths cannot drift.
+
 ## Toggling individual headers
 
 Pass `false` for any field to skip it:

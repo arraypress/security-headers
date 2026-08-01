@@ -1,6 +1,6 @@
 {
   "name": "@arraypress/security-headers",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Security response headers for Hono — CSP, HSTS, X-Frame-Options, Referrer-Policy, Permissions-Policy. Strict by default.",
   "type": "module",
   "main": "src/index.js",

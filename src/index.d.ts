@@ -146,4 +146,9 @@ export function buildHSTS(config?: HSTSConfig | true): string;
  * @param config Partial override of the defaults.
  * @returns Hono middleware handler.
  */
+export function buildHeaders(config?: SecurityHeadersConfig): Record<string, string>;
+
+export interface HeadersFileOptions { path?: string; }
+export function headersFile(config?: SecurityHeadersConfig, options?: HeadersFileOptions): string;
+
 export function securityHeaders(config?: SecurityHeadersConfig): MiddlewareHandler;

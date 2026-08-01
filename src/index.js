@@ -151,6 +151,68 @@ export function buildHSTS(config = true) {
  * }));
  * ```
  */
+/**
+ * Build the security headers as a plain object, with no framework attached.
+ *
+ * Same config and same defaults as {@link securityHeaders}, minus the Hono
+ * middleware — for anywhere you need the values rather than a handler: a static
+ * host's headers file, a `Response` you construct yourself, or a test asserting
+ * on policy.
+ *
+ * @param {SecurityHeadersConfig} [config={}] - Same shape as `securityHeaders`.
+ * @returns {Object<string, string>} Header name → value, omitting any disabled with `false`.
+ *
+ * @example
+ * const headers = buildHeaders({ csp: { scriptSrc: ["'self'"] } });
+ * return new Response(body, { headers });
+ */
+export function buildHeaders(config = {}) {
+  const {
+    csp = {},
+    hsts = true,
+    xContentTypeOptions = true,
+    xFrameOptions = 'SAMEORIGIN',
+    referrerPolicy = 'strict-origin-when-cross-origin',
+    permissionsPolicy = 'camera=(), microphone=(), geolocation=()',
+  } = config;
+
+  const out = {};
+  if (xContentTypeOptions) out['X-Content-Type-Options'] = 'nosniff';
+  if (xFrameOptions !== false) out['X-Frame-Options'] = xFrameOptions;
+  if (referrerPolicy !== false) out['Referrer-Policy'] = referrerPolicy;
+  if (permissionsPolicy !== false) out['Permissions-Policy'] = permissionsPolicy;
+  if (csp !== false) out['Content-Security-Policy'] = buildCSP(csp);
+  if (hsts !== false) out['Strict-Transport-Security'] = buildHSTS(hsts);
+  return out;
+}
+
+/**
+ * Render a `_headers` file for a static host (Cloudflare Pages / Workers static
+ * assets, Netlify).
+ *
+ * A static site has no request handler to hang middleware off — adding one to a
+ * Cloudflare static-assets Worker means a `main` script, which makes every
+ * request billable. `_headers` is the equivalent, applied at the edge for free.
+ *
+ * Note Cloudflare caps a `_headers` file at 100 rules; one `path` costs one
+ * rule regardless of how many headers it carries.
+ *
+ * @param {SecurityHeadersConfig} [config={}] - Same shape as `securityHeaders`.
+ * @param {Object} [options={}] - Rendering options.
+ * @param {string} [options.path='/*'] - Path pattern the headers apply to.
+ * @returns {string} The file contents, newline-terminated.
+ *
+ * @example
+ * // scripts/build-headers.js
+ * writeFileSync('dist/_headers', headersFile({ csp: { scriptSrc: ["'self'"] } }));
+ */
+export function headersFile(config = {}, options = {}) {
+  const { path = '/*' } = options;
+  const headers = buildHeaders(config);
+  const lines = [path, ...Object.entries(headers).map(([k, v]) => `  ${k}: ${v}`)];
+  return lines.join('\n') + '\n';
+}
+
 export function securityHeaders(config = {}) {
   const {
     csp = {},

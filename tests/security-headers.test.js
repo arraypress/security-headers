@@ -1,15 +1,16 @@
 /**
  * @arraypress/security-headers — test suite.
  *
- * Split into three groups: `buildCSP` unit tests (no Hono), `buildHSTS`
- * unit tests, and `securityHeaders` integration tests that fire in-memory
- * requests through a tiny Hono app and assert on the response headers.
+ * Split into five groups: `buildCSP` unit tests (no Hono), `buildHSTS`
+ * unit tests, `securityHeaders` integration tests that fire in-memory requests
+ * through a tiny Hono app and assert on the response headers, and framework-free
+ * `buildHeaders` / `headersFile` unit tests for the static-host path.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
-import { buildCSP, buildHSTS, securityHeaders } from '../src/index.js';
+import { buildCSP, buildHSTS, securityHeaders, buildHeaders, headersFile } from '../src/index.js';
 
 // ── buildCSP ───────────────────────────────────────────
 
@@ -197,5 +198,56 @@ describe('securityHeaders performance', () => {
       first.headers.get('content-security-policy'),
       second.headers.get('content-security-policy'),
     );
+  });
+});
+
+describe('buildHeaders', () => {
+  it('returns the full default set', () => {
+    const h = buildHeaders();
+    assert.equal(h['X-Content-Type-Options'], 'nosniff');
+    assert.equal(h['X-Frame-Options'], 'SAMEORIGIN');
+    assert.equal(h['Referrer-Policy'], 'strict-origin-when-cross-origin');
+    assert.ok(h['Content-Security-Policy'].includes("default-src 'self'"));
+    assert.ok(h['Strict-Transport-Security'].includes('max-age='));
+  });
+
+  it('omits anything disabled with false', () => {
+    const h = buildHeaders({ csp: false, hsts: false, xFrameOptions: false });
+    assert.equal(h['Content-Security-Policy'], undefined);
+    assert.equal(h['Strict-Transport-Security'], undefined);
+    assert.equal(h['X-Frame-Options'], undefined);
+    assert.equal(h['X-Content-Type-Options'], 'nosniff');
+  });
+
+  it('matches what the middleware sets', async () => {
+    const app = new Hono();
+    app.use('*', securityHeaders());
+    app.get('/', (c) => c.text('ok'));
+    const res = await app.request('/');
+    for (const [k, v] of Object.entries(buildHeaders())) {
+      assert.equal(res.headers.get(k), v, `${k} should match the middleware`);
+    }
+  });
+});
+
+describe('headersFile', () => {
+  it('renders a _headers block with two-space indentation', () => {
+    const out = headersFile();
+    const lines = out.trimEnd().split('\n');
+    assert.equal(lines[0], '/*');
+    assert.ok(lines.slice(1).every((l) => l.startsWith('  ')));
+    assert.ok(out.endsWith('\n'));
+  });
+
+  it('honours a custom path', () => {
+    assert.ok(headersFile({}, { path: '/admin/*' }).startsWith('/admin/*\n'));
+  });
+
+  it('carries the same values as buildHeaders', () => {
+    const out = headersFile({ csp: { scriptSrc: ["'self'"] } });
+    const built = buildHeaders({ csp: { scriptSrc: ["'self'"] } });
+    for (const [k, v] of Object.entries(built)) {
+      assert.ok(out.includes(`  ${k}: ${v}`), `${k} should appear verbatim`);
+    }
   });
 });
