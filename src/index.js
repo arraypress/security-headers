@@ -1,12 +1,12 @@
 /**
  * @arraypress/security-headers
  *
- * Security response headers for Hono on edge runtimes. Ships strict-by-default
+ * Security response headers for static hosts. Ships strict-by-default
  * Content-Security-Policy + HSTS + the usual supporting headers
  * (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`,
  * `Permissions-Policy`) as a single middleware.
  *
- * Zero dependencies beyond Hono itself. Defaults match a modern admin
+ * Zero dependencies. Defaults match a modern admin
  * SPA (Tailwind v4 + shadcn/ui): same-origin everything, `'unsafe-inline'`
  * on style only (required by Tailwind arbitrary values + Radix inline
  * positioning), `object-src 'none'` to kill legacy plugins, and
@@ -129,37 +129,13 @@ export function buildHSTS(config = true) {
 }
 
 /**
- * Create the security-headers Hono middleware.
- *
- * Runs AFTER `next()` so the headers are applied to the response on the
- * way out. Every header is independently togglable — pass `false` for
- * any field to skip that header entirely.
- *
- * @param {import('./index.d.ts').SecurityHeadersConfig} [config={}]
- * @returns {import('hono').MiddlewareHandler}
- *
- * @example
- * ```ts
- * import { securityHeaders } from '@arraypress/security-headers';
- *
- * app.use('*', securityHeaders({
- *   csp: {
- *     scriptSrc: ["'self'", 'https://challenges.cloudflare.com'],
- *     frameSrc:  ["'self'", 'https://challenges.cloudflare.com'],
- *   },
- *   // hsts / xFrameOptions / etc. use safe defaults
- * }));
- * ```
- */
-/**
  * Build the security headers as a plain object, with no framework attached.
  *
- * Same config and same defaults as {@link securityHeaders}, minus the Hono
- * middleware — for anywhere you need the values rather than a handler: a static
- * host's headers file, a `Response` you construct yourself, or a test asserting
- * on policy.
+ * For anywhere you need the values rather than a handler: a static host's
+ * headers file, a `Response` you construct yourself, or a test asserting on
+ * policy.
  *
- * @param {SecurityHeadersConfig} [config={}] - Same shape as `securityHeaders`.
+ * @param {SecurityHeadersConfig} [config={}] - Header configuration.
  * @returns {Object<string, string>} Header name → value, omitting any disabled with `false`.
  *
  * @example
@@ -197,7 +173,7 @@ export function buildHeaders(config = {}) {
  * Note Cloudflare caps a `_headers` file at 100 rules; one `path` costs one
  * rule regardless of how many headers it carries.
  *
- * @param {SecurityHeadersConfig} [config={}] - Same shape as `securityHeaders`.
+ * @param {SecurityHeadersConfig} [config={}] - Header configuration.
  * @param {Object} [options={}] - Rendering options.
  * @param {string} [options.path='/*'] - Path pattern the headers apply to.
  * @returns {string} The file contents, newline-terminated.
@@ -211,43 +187,4 @@ export function headersFile(config = {}, options = {}) {
   const headers = buildHeaders(config);
   const lines = [path, ...Object.entries(headers).map(([k, v]) => `  ${k}: ${v}`)];
   return lines.join('\n') + '\n';
-}
-
-export function securityHeaders(config = {}) {
-  const {
-    csp = {},
-    hsts = true,
-    xContentTypeOptions = true,
-    xFrameOptions = 'SAMEORIGIN',
-    referrerPolicy = 'strict-origin-when-cross-origin',
-    permissionsPolicy = 'camera=(), microphone=(), geolocation=()',
-  } = config;
-
-  // Pre-compute the static header strings once so the middleware isn't
-  // serializing on every request.
-  const cspHeader = csp === false ? null : buildCSP(csp);
-  const hstsHeader = hsts === false ? null : buildHSTS(hsts);
-
-  return async (c, next) => {
-    await next();
-
-    if (xContentTypeOptions) {
-      c.header('X-Content-Type-Options', 'nosniff');
-    }
-    if (xFrameOptions !== false) {
-      c.header('X-Frame-Options', xFrameOptions);
-    }
-    if (referrerPolicy !== false) {
-      c.header('Referrer-Policy', referrerPolicy);
-    }
-    if (permissionsPolicy !== false) {
-      c.header('Permissions-Policy', permissionsPolicy);
-    }
-    if (cspHeader) {
-      c.header('Content-Security-Policy', cspHeader);
-    }
-    if (hstsHeader) {
-      c.header('Strict-Transport-Security', hstsHeader);
-    }
-  };
 }

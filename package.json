@@ -1,7 +1,7 @@
 {
   "name": "@arraypress/security-headers",
-  "version": "1.1.0",
-  "description": "Security response headers for Hono — CSP, HSTS, X-Frame-Options, Referrer-Policy, Permissions-Policy. Strict by default.",
+  "version": "2.0.0",
+  "description": "Security response headers for static hosts \u2014 CSP, HSTS, X-Frame-Options, Referrer-Policy, Permissions-Policy. Generates a Cloudflare/Netlify _headers file, with an Astro integration. Zero dependencies.",
   "type": "module",
   "main": "src/index.js",
   "types": "src/index.d.ts",
@@ -9,6 +9,10 @@
     ".": {
       "import": "./src/index.js",
       "types": "./src/index.d.ts"
+    },
+    "./astro": {
+      "import": "./src/astro.js",
+      "types": "./src/astro.d.ts"
     }
   },
   "files": [
@@ -18,13 +22,16 @@
     "test": "node --test tests/*.test.js"
   },
   "keywords": [
-    "hono",
     "security",
     "csp",
     "hsts",
     "headers",
     "clickjacking",
-    "cloudflare-workers"
+    "cloudflare-pages",
+    "netlify",
+    "astro",
+    "astro-integration",
+    "_headers"
   ],
   "author": "David Sherlock",
   "license": "MIT",
@@ -33,6 +40,11 @@
     "url": "https://github.com/arraypress/security-headers"
   },
   "peerDependencies": {
-    "hono": "^4.12.12"
+    "astro": "^5.0.0 || ^6.0.0 || ^7.0.0"
+  },
+  "peerDependenciesMeta": {
+    "astro": {
+      "optional": true
+    }
   }
 }

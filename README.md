@@ -1,23 +1,6 @@
 # @arraypress/security-headers
 
-Strict-by-default security response headers for Hono on edge runtimes (Cloudflare Workers, Deno, Bun, Node.js). Single middleware covers:
-
-- **Content-Security-Policy** — builder with safe defaults tuned for Tailwind v4 + shadcn/ui admin SPAs
-- **Strict-Transport-Security** — HSTS with 1-year max-age + `includeSubDomains` out of the box
-- **X-Frame-Options** — legacy clickjacking defence (supersets CSP `frame-ancestors`)
-- **X-Content-Type-Options** — `nosniff` to block MIME-type guessing
-- **Referrer-Policy** — `strict-origin-when-cross-origin` by default
-- **Permissions-Policy** — restrictive browser-feature gate (camera/mic/geolocation off)
-
-Plus standalone `buildCSP()` and `buildHSTS()` helpers when you want the header string without the middleware (e.g. static-file serves, reverse-proxy config).
-
-Zero runtime dependencies. Peer: `hono ^4.0.0`.
-
----
-
-## Why
-
-Configuring CSP by hand is how apps end up with `'unsafe-eval'` in production or a forgotten HSTS directive. This package bakes in the pattern that's been tuned across multiple `@arraypress` apps — every header togglable, every directive overridable, but always with a sensible baseline.
+> Security response headers for static hosts — CSP, HSTS, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`. Generates a Cloudflare/Netlify `_headers` file, with an Astro integration. Zero dependencies.
 
 ## Install
 
@@ -25,268 +8,130 @@ Configuring CSP by hand is how apps end up with `'unsafe-eval'` in production or
 npm install @arraypress/security-headers
 ```
 
-## Quick start
+## Astro
 
-```ts
-import { Hono } from 'hono';
-import { securityHeaders } from '@arraypress/security-headers';
+```js
+// astro.config.mjs
+import { defineConfig } from 'astro/config';
+import headers from '@arraypress/security-headers/astro';
 
-const app = new Hono();
-
-app.use('*', securityHeaders({
-  // Add Turnstile to the CAPTCHA-using script + frame allowlists.
-  csp: {
-    scriptSrc: ["'self'", 'https://challenges.cloudflare.com'],
-    frameSrc:  ["'self'", 'https://challenges.cloudflare.com'],
-  },
-  // All other headers use strict defaults.
-}));
-```
-
-## Default configuration
-
-If you pass no config at all, here's what your responses will carry:
-
-```http
-Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-src 'self'; form-action 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; upgrade-insecure-requests
-Strict-Transport-Security: max-age=31536000; includeSubDomains
-X-Content-Type-Options: nosniff
-X-Frame-Options: SAMEORIGIN
-Referrer-Policy: strict-origin-when-cross-origin
-Permissions-Policy: camera=(), microphone=(), geolocation=()
-```
-
-### Why these specific defaults
-
-- **`'unsafe-inline'` on `style-src`** — Tailwind v4 emits inline styles for arbitrary-value utilities (`[--foo:12]`) and Radix / shadcn primitives set inline positioning styles. Without this, the admin SPA visibly breaks. If your app doesn't use either, tighten with `styleSrc: ["'self'"]`.
-- **`img-src 'self' data: https:`** — `data:` allows inline SVG / embedded base64 images; `https:` allows any HTTPS image source. Tighten with a specific allowlist if you host all images yourself.
-- **`object-src 'none'`** — kills Flash / Java plugin vectors. Keep this restrictive unless you have a hard requirement.
-- **`frame-ancestors 'self'`** — clickjacking defence. Supersedes `X-Frame-Options` on modern browsers, but we set both for belt-and-braces.
-- **`upgrade-insecure-requests`** — auto-rewrites any `http://` ref to `https://` so a stray asset URL doesn't mixed-content-warn.
-- **HSTS 1yr + includeSubDomains, no preload** — `preload` is hard to undo (inclusion requires manual submission to hstspreload.org). Opt in explicitly if you actually want it.
-
-## CSP configuration
-
-Every directive has a safe default. Pass only the ones you want to override — **arrays replace the default, they don't merge**. This is deliberate: CSP bugs are usually "I added X but forgot to include the baseline," and explicit replacement makes the full rule visible in one place.
-
-```ts
-securityHeaders({
-  csp: {
-    defaultSrc:  ["'self'"],
-    scriptSrc:   ["'self'", 'https://challenges.cloudflare.com'],
-    styleSrc:    ["'self'", "'unsafe-inline'"],
-    imgSrc:      ["'self'", 'data:', 'https:'],
-    fontSrc:     ["'self'"],
-    connectSrc:  ["'self'"],
-    frameSrc:    ["'self'", 'https://challenges.cloudflare.com'],
-    formAction:  ["'self'"],
-    baseUri:     ["'self'"],
-    objectSrc:   ["'none'"],
-    frameAncestors: ["'self'"],
-    upgradeInsecureRequests: true,
-
-    // For directives not covered above (e.g. report-uri):
-    custom: {
-      'report-uri': ['https://example.report-uri.com/a/d/g'],
-      'require-trusted-types-for': ["'script'"],
-    },
-  },
+export default defineConfig({
+  security: { csp: true },    // Astro owns CSP — see below
+  integrations: [headers()],   // everything else, written to dist/_headers
 });
 ```
 
-Pass `csp: false` to skip the CSP header entirely — e.g. for an API-only Worker where the browser never renders responses.
+The integration writes `_headers` on `astro:build:done`, so there's no separate
+build script to remember. It logs what it wrote:
 
-## HSTS configuration
-
-```ts
-securityHeaders({
-  hsts: {
-    maxAge: 63072000,        // 2 years (preload-list requirement)
-    includeSubDomains: true,
-    preload: true,            // only after submitting to hstspreload.org
-  },
-});
+```
+[@arraypress/security-headers] wrote _headers — 5 headers on /*
 ```
 
-Pass `hsts: true` for the defaults (1yr, includeSubDomains, no preload), or `hsts: false` to skip HSTS entirely.
+### Why a file and not middleware
 
-## Standalone builders
+On Cloudflare, a static-assets deploy with no server script serves requests for
+free. Adding middleware to set headers adds a script and makes every request
+billable. `_headers` is applied at the edge for nothing.
 
-Use these when you need the header string without the middleware:
+### Why CSP defaults to off here
 
-```ts
-import { buildCSP, buildHSTS } from '@arraypress/security-headers';
+Astro has its own `security.csp`, and it can hash the inline `<script>` and
+`<style>` blocks Astro itself emits — the theme flash-guard, scoped component
+styles. A static `_headers` file can't hash them, so expressing the same policy
+there means `'unsafe-inline'` on both directives, which is most of what CSP was
+protecting you from.
 
-// E.g. for a static Response with custom headers:
-const csp = buildCSP({ scriptSrc: ["'self'"] });
-const hsts = buildHSTS({ maxAge: 31536000 });
+So Astro owns CSP, and this owns what Astro doesn't do: HSTS,
+`X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`,
+`X-Content-Type-Options`.
 
-return new Response(html, {
-  headers: {
-    'Content-Type': 'text/html',
-    'Content-Security-Policy': csp,
-    'Strict-Transport-Security': hsts,
-  },
-});
+Opt back in — for a host where Astro's CSP isn't in play:
+
+```js
+integrations: [headers({ csp: { defaultSrc: ["'self'"] } })]
 ```
 
-## Static sites — `buildHeaders` and `headersFile`
+### Options
 
-A static site has no request handler to hang middleware off. On a Cloudflare
-static-assets Worker, adding one means a `main` script — which makes every
-request billable. `_headers` does the same job at the edge, for free.
+`headers(config?, options?)`
 
-```ts
-import { buildHeaders, headersFile } from '@arraypress/security-headers';
+- `config` — a `SecurityHeadersConfig` (below). `csp` defaults to `false` here.
+- `options.path` — path pattern the headers apply to. Default `'/*'`.
+- `options.filename` — output name. Default `'_headers'`.
 
-// The same config and defaults as `securityHeaders()`, as a plain object.
-const headers = buildHeaders({ csp: { scriptSrc: ["'self'"] } });
-return new Response(body, { headers });
+Cloudflare caps a `_headers` file at 100 rules; one path costs one rule however
+many headers it carries.
+
+## Anywhere else
+
+The generators are plain functions with no framework attached — use them from a
+build script, a Worker, or a test.
+
+```js
+import { headersFile, buildHeaders, buildCSP, buildHSTS } from '@arraypress/security-headers';
+
+// A _headers file, as a string.
+writeFileSync('dist/_headers', headersFile({ csp: { scriptSrc: ["'self'"] } }));
+
+// The same values as a plain object — for a Response you build yourself.
+return new Response(body, { headers: buildHeaders() });
+
+// Or one header at a time.
+buildCSP({ defaultSrc: ["'self'"] });
+buildHSTS({ maxAge: 31536000, includeSubDomains: true });
 ```
 
-```ts
-// scripts/build-headers.ts — run after your static build.
-import { writeFileSync } from 'node:fs';
-
-writeFileSync('dist/_headers', headersFile({ xFrameOptions: 'DENY' }));
-```
-
-Which writes:
+`headersFile()` renders the Cloudflare/Netlify format — a path line, then each
+header indented two spaces:
 
 ```
 /*
   X-Content-Type-Options: nosniff
-  X-Frame-Options: DENY
+  X-Frame-Options: SAMEORIGIN
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
-  Content-Security-Policy: default-src 'self'; …
   Strict-Transport-Security: max-age=31536000; includeSubDomains
 ```
 
-Pass `{ path: '/admin/*' }` to scope a block. Note Cloudflare caps a `_headers`
-file at 100 rules — one path pattern costs one rule regardless of how many
-headers it carries.
+## Configuration
 
-`buildHeaders` is asserted in the test suite to produce exactly what the
-middleware sets, so the two paths cannot drift.
-
-## Toggling individual headers
-
-Pass `false` for any field to skip it:
-
-```ts
-securityHeaders({
-  csp: false,                  // no CSP at all
-  hsts: false,                 // no HSTS at all
-  xFrameOptions: false,        // no X-Frame-Options (rely on CSP frame-ancestors only)
-  xContentTypeOptions: true,   // keep nosniff
-  referrerPolicy: 'no-referrer',
-  permissionsPolicy: false,    // no Permissions-Policy
-});
-```
-
-## Full configuration reference
-
-### `SecurityHeadersConfig`
-
-| Field | Default | Description |
+| Option | Default | Notes |
 |---|---|---|
-| `csp` | Strict defaults (see above) | CSP config, or `false` to skip. |
-| `hsts` | `true` (1yr + includeSubDomains) | HSTS config, or `true` / `false`. |
-| `xContentTypeOptions` | `true` | Emit `X-Content-Type-Options: nosniff`. |
-| `xFrameOptions` | `'SAMEORIGIN'` | `'DENY'` / `'SAMEORIGIN'` / `false`. |
-| `referrerPolicy` | `'strict-origin-when-cross-origin'` | Any valid Referrer-Policy, or `false`. |
-| `permissionsPolicy` | `'camera=(), microphone=(), geolocation=()'` | Any valid Permissions-Policy, or `false`. |
+| `csp` | strict defaults | `CSPConfig` or `false`. Defaults to `false` in the Astro integration. |
+| `hsts` | `true` | `HSTSConfig`, `true` for defaults, or `false` to skip. |
+| `xContentTypeOptions` | `true` | Emits `nosniff`. |
+| `xFrameOptions` | `'SAMEORIGIN'` | `'DENY'`, `'SAMEORIGIN'` or `false`. |
+| `referrerPolicy` | `'strict-origin-when-cross-origin'` | Any policy string, or `false`. |
+| `permissionsPolicy` | `camera=(), microphone=(), geolocation=()` | Any policy string, or `false`. |
 
-### `CSPConfig`
+Every header is independently togglable — pass `false` to skip it.
 
-| Directive | Default | Notes |
-|---|---|---|
-| `defaultSrc` | `["'self'"]` | Fallback for anything not explicitly set. |
-| `scriptSrc` | `["'self'"]` | Add CDN origins for external scripts. |
-| `styleSrc` | `["'self'", "'unsafe-inline'"]` | Drop `'unsafe-inline'` if your app doesn't need Tailwind v4 arbitrary values or Radix inline positioning. |
-| `imgSrc` | `["'self'", 'data:', 'https:']` | Tighten with specific origins when possible. |
-| `fontSrc` | `["'self'"]` | Add CDN origins for web fonts. |
-| `connectSrc` | `["'self'"]` | Add API origins for `fetch` / XHR. |
-| `frameSrc` | `["'self'"]` | Allowed iframe sources (CAPTCHAs, embeds). |
-| `formAction` | `["'self'"]` | Allowed `<form action>` targets. |
-| `baseUri` | `["'self'"]` | Allowed `<base href>` origins. |
-| `objectSrc` | `["'none'"]` | Keep at `'none'` unless you really need plugins. |
-| `frameAncestors` | `["'self'"]` | Who can frame you. Supersets `X-Frame-Options`. |
-| `upgradeInsecureRequests` | `true` | Auto-rewrite http:// → https://. |
-| `custom` | `undefined` | Map of raw directive name → values for anything not first-class. |
+CSP directives are camelCase and become kebab-case on the wire:
+`defaultSrc`, `scriptSrc`, `styleSrc`, `imgSrc`, `fontSrc`, `connectSrc`,
+`frameSrc`, and the rest.
 
-### `HSTSConfig`
-
-| Field | Default | Description |
-|---|---|---|
-| `maxAge` | `31536000` | Seconds. `63072000` (2yr) is required for preload-list eligibility. |
-| `includeSubDomains` | `true` | Apply HSTS to all subdomains. |
-| `preload` | `false` | Emit `preload` directive. **Only set after submitting to hstspreload.org** — inclusion is hard to undo. |
-
-## Patterns
-
-### Adding Cloudflare Turnstile / reCAPTCHA
-
-Both CAPTCHA providers need their CDN on `script-src` and `frame-src`:
-
-```ts
-securityHeaders({
-  csp: {
-    scriptSrc: ["'self'", 'https://challenges.cloudflare.com'],
-    frameSrc:  ["'self'", 'https://challenges.cloudflare.com'],
-  },
+```js
+buildHeaders({
+  csp: { scriptSrc: ["'self'", 'https://challenges.cloudflare.com'] },
+  xFrameOptions: 'DENY',
+  hsts: { maxAge: 63072000, includeSubDomains: true, preload: true },
+  permissionsPolicy: false,
 });
-```
-
-Google reCAPTCHA uses `https://www.google.com` instead.
-
-### Allowing Stripe checkout
-
-```ts
-securityHeaders({
-  csp: {
-    scriptSrc: ["'self'", 'https://js.stripe.com'],
-    frameSrc:  ["'self'", 'https://js.stripe.com', 'https://hooks.stripe.com'],
-    connectSrc: ["'self'", 'https://api.stripe.com'],
-  },
-});
-```
-
-### Report-only mode
-
-For testing a tightened policy without breaking the app, use `custom`:
-
-```ts
-// Apply the strict policy as reporting-only, keep the lenient one as enforced.
-app.use('*', securityHeaders({ csp: { /* lenient live policy */ } }));
-app.use('*', async (c, next) => {
-  await next();
-  c.header('Content-Security-Policy-Report-Only',
-    buildCSP({ /* stricter trial policy */, custom: { 'report-uri': ['/csp-report'] } })
-  );
-});
-```
-
-### Non-admin API Worker
-
-If your Worker serves only JSON to trusted clients, CSP + XFO don't buy you much:
-
-```ts
-app.use('*', securityHeaders({
-  csp: false,
-  xFrameOptions: false,
-  // Keep HSTS + nosniff — always useful.
-}));
 ```
 
 ## Security notes
 
-- **CSP doesn't protect against CSRF** — you need a separate token or `X-Requested-With` check. See `@arraypress/admin-auth` for one.
-- **HSTS only takes effect after the first TLS response** — a user's first insecure HTTP request to the domain is still vulnerable to TLS-stripping attacks. That's why `preload` exists (gets it into the browser's built-in list).
-- **`frame-ancestors` is the modern clickjacking defence** — `X-Frame-Options` is legacy but both are set for older browsers.
-- **`'unsafe-inline'` on `style-src` is NOT equivalent to `'unsafe-inline'` on `script-src`** — inline styles are much lower risk than inline scripts. Don't let CSP-purity arguments push you into breaking Tailwind.
-- **`report-uri` has largely been replaced by `report-to`** — if you're collecting violations, check your reporting endpoint's requirements.
+`X-Frame-Options` is superseded by CSP's `frame-ancestors` but is still emitted
+for older browsers — they don't cost each other anything.
+
+The `Permissions-Policy` default is a tight baseline suited to admin surfaces.
+If your site legitimately uses the camera, microphone or geolocation, extend it
+rather than dropping the header.
+
+HSTS only takes effect over HTTPS, and `preload` is a one-way door — browsers
+cache it for a long time, so don't enable it until you're certain every
+subdomain can serve HTTPS.
 
 ## License
 

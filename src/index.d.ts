@@ -1,4 +1,3 @@
-import type { MiddlewareHandler } from 'hono';
 
 // ── CSP ─────────────────────────────────────────────────
 
@@ -109,7 +108,7 @@ export interface SecurityHeadersConfig {
  * Build a Content-Security-Policy header string.
  *
  * Pure function — no side effects. Useful for embedding CSP into
- * response shells rendered outside Hono's middleware chain (e.g. a
+ * response shells rendered outside a request handler (e.g. a
  * static-file serve with custom headers).
  *
  * @param config Partial override of the default directive set.
@@ -126,29 +125,22 @@ export function buildCSP(config?: CSPConfig): string;
 export function buildHSTS(config?: HSTSConfig | true): string;
 
 /**
- * Create the security-headers Hono middleware.
+ * Build the security headers as a plain object.
  *
- * Runs on the response path (after `next()`) so headers land on every
- * response regardless of status. Pass `false` for any field to skip
- * that specific header.
+ * For anywhere you need the values rather than a file: a `Response` you
+ * construct yourself, or a test asserting on policy. Pass `false` for any
+ * field to skip that specific header.
  *
  * @example
  * ```ts
- * app.use('*', securityHeaders({
- *   csp: {
- *     scriptSrc: ["'self'", 'https://challenges.cloudflare.com'],
- *     frameSrc:  ["'self'", 'https://challenges.cloudflare.com'],
- *   },
- *   // hsts / xFrameOptions / etc. use safe defaults
- * }));
+ * return new Response(body, { headers: buildHeaders() });
  * ```
  *
  * @param config Partial override of the defaults.
- * @returns Hono middleware handler.
+ * @returns Header name → value.
  */
 export function buildHeaders(config?: SecurityHeadersConfig): Record<string, string>;
 
 export interface HeadersFileOptions { path?: string; }
 export function headersFile(config?: SecurityHeadersConfig, options?: HeadersFileOptions): string;
 
-export function securityHeaders(config?: SecurityHeadersConfig): MiddlewareHandler;

@@ -1,16 +1,14 @@
 /**
  * @arraypress/security-headers — test suite.
  *
- * Split into five groups: `buildCSP` unit tests (no Hono), `buildHSTS`
- * unit tests, `securityHeaders` integration tests that fire in-memory requests
- * through a tiny Hono app and assert on the response headers, and framework-free
- * `buildHeaders` / `headersFile` unit tests for the static-host path.
+ * Four groups, all framework-free: `buildCSP` and `buildHSTS` unit tests, and
+ * `buildHeaders` / `headersFile` tests covering the static-host path — the
+ * `_headers` file a Cloudflare Pages or Netlify deploy serves at the edge.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { Hono } from 'hono';
-import { buildCSP, buildHSTS, securityHeaders, buildHeaders, headersFile } from '../src/index.js';
+import { buildCSP, buildHSTS, buildHeaders, headersFile } from '../src/index.js';
 
 // ── buildCSP ───────────────────────────────────────────
 
@@ -97,109 +95,6 @@ describe('buildHSTS', () => {
   });
 });
 
-// ── securityHeaders middleware ─────────────────────────
-
-function buildApp(config) {
-  const app = new Hono();
-  app.use('*', securityHeaders(config));
-  app.get('/', (c) => c.text('ok'));
-  return app;
-}
-
-describe('securityHeaders defaults', () => {
-  it('applies every default header on a GET response', async () => {
-    const app = buildApp();
-    const res = await app.request('/');
-
-    assert.match(res.headers.get('content-security-policy') ?? '', /default-src 'self'/);
-    assert.equal(res.headers.get('strict-transport-security'), 'max-age=31536000; includeSubDomains');
-    assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
-    assert.equal(res.headers.get('x-frame-options'), 'SAMEORIGIN');
-    assert.equal(res.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
-    assert.equal(res.headers.get('permissions-policy'), 'camera=(), microphone=(), geolocation=()');
-  });
-});
-
-describe('securityHeaders overrides', () => {
-  it('merges a CSP override into the strict defaults', async () => {
-    const app = buildApp({
-      csp: { scriptSrc: ["'self'", 'https://challenges.cloudflare.com'] },
-    });
-    const res = await app.request('/');
-    const csp = res.headers.get('content-security-policy') ?? '';
-    assert.match(csp, /script-src 'self' https:\/\/challenges\.cloudflare\.com/);
-    assert.match(csp, /default-src 'self'/);
-  });
-
-  it('skips CSP entirely when csp: false', async () => {
-    const app = buildApp({ csp: false });
-    const res = await app.request('/');
-    assert.equal(res.headers.get('content-security-policy'), null);
-    // Other headers still applied.
-    assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
-  });
-
-  it('skips HSTS when hsts: false', async () => {
-    const app = buildApp({ hsts: false });
-    const res = await app.request('/');
-    assert.equal(res.headers.get('strict-transport-security'), null);
-  });
-
-  it('respects xFrameOptions: false', async () => {
-    const app = buildApp({ xFrameOptions: false });
-    const res = await app.request('/');
-    assert.equal(res.headers.get('x-frame-options'), null);
-  });
-
-  it('allows DENY for xFrameOptions', async () => {
-    const app = buildApp({ xFrameOptions: 'DENY' });
-    const res = await app.request('/');
-    assert.equal(res.headers.get('x-frame-options'), 'DENY');
-  });
-
-  it('custom referrer policy replaces the default', async () => {
-    const app = buildApp({ referrerPolicy: 'no-referrer' });
-    const res = await app.request('/');
-    assert.equal(res.headers.get('referrer-policy'), 'no-referrer');
-  });
-
-  it('skips permissionsPolicy when false', async () => {
-    const app = buildApp({ permissionsPolicy: false });
-    const res = await app.request('/');
-    assert.equal(res.headers.get('permissions-policy'), null);
-  });
-
-  it('skips xContentTypeOptions when false', async () => {
-    const app = buildApp({ xContentTypeOptions: false });
-    const res = await app.request('/');
-    assert.equal(res.headers.get('x-content-type-options'), null);
-  });
-
-  it('applies to error responses too (runs after next)', async () => {
-    const app = new Hono();
-    app.use('*', securityHeaders());
-    app.get('/boom', (c) => c.json({ error: 'x' }, 500));
-
-    const res = await app.request('/boom');
-    assert.equal(res.status, 500);
-    assert.ok(res.headers.get('content-security-policy'));
-    assert.ok(res.headers.get('strict-transport-security'));
-  });
-});
-
-describe('securityHeaders performance', () => {
-  it('pre-computes the CSP string once per middleware (not per request)', async () => {
-    // Not directly observable, but we can at least confirm the same
-    // middleware used across many requests emits identical headers.
-    const app = buildApp({ csp: { scriptSrc: ["'self'"] } });
-    const first = await app.request('/');
-    const second = await app.request('/');
-    assert.equal(
-      first.headers.get('content-security-policy'),
-      second.headers.get('content-security-policy'),
-    );
-  });
-});
 
 describe('buildHeaders', () => {
   it('returns the full default set', () => {
@@ -217,16 +112,6 @@ describe('buildHeaders', () => {
     assert.equal(h['Strict-Transport-Security'], undefined);
     assert.equal(h['X-Frame-Options'], undefined);
     assert.equal(h['X-Content-Type-Options'], 'nosniff');
-  });
-
-  it('matches what the middleware sets', async () => {
-    const app = new Hono();
-    app.use('*', securityHeaders());
-    app.get('/', (c) => c.text('ok'));
-    const res = await app.request('/');
-    for (const [k, v] of Object.entries(buildHeaders())) {
-      assert.equal(res.headers.get(k), v, `${k} should match the middleware`);
-    }
   });
 });
 
@@ -249,5 +134,59 @@ describe('headersFile', () => {
     for (const [k, v] of Object.entries(built)) {
       assert.ok(out.includes(`  ${k}: ${v}`), `${k} should appear verbatim`);
     }
+  });
+});
+
+// ── Astro integration ──────────────────────────────────
+
+import integration from '../src/astro.js';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+/** Run the integration's build:done hook against a throwaway directory. */
+function runBuild(config, options) {
+  const dir = pathToFileURL(join(mkdtempSync(join(tmpdir(), 'sh-')), '/'));
+  const logs = [];
+  const it = integration(config, options);
+  it.hooks['astro:build:done']({ dir, logger: { info: (m) => logs.push(m) } });
+  const name = options?.filename ?? '_headers';
+  return { body: readFileSync(new URL(name, dir), 'utf8'), logs };
+}
+
+describe('astro integration', () => {
+  it('writes _headers on build:done', () => {
+    const { body } = runBuild();
+    const lines = body.trimEnd().split('\n');
+    assert.equal(lines[0], '/*');
+    assert.ok(lines.some((l) => l.includes('X-Frame-Options: SAMEORIGIN')));
+    assert.ok(lines.some((l) => l.includes('Strict-Transport-Security')));
+  });
+
+  /* Astro's own security.csp hashes the inline blocks Astro emits, so it beats
+   * anything a static file can express without 'unsafe-inline'. The integration
+   * must stay out of its way unless asked. */
+  it('omits CSP by default, leaving it to Astro', () => {
+    assert.ok(!runBuild().body.includes('Content-Security-Policy'));
+  });
+
+  it('emits CSP when explicitly configured', () => {
+    const { body } = runBuild({ csp: { defaultSrc: ["'self'"] } });
+    assert.ok(body.includes("Content-Security-Policy: default-src 'self'"));
+  });
+
+  it('honours path and filename', () => {
+    const { body } = runBuild({}, { path: '/assets/*', filename: '_headers.txt' });
+    assert.equal(body.trimEnd().split('\n')[0], '/assets/*');
+  });
+
+  it('reports what it wrote', () => {
+    const { logs } = runBuild();
+    assert.match(logs[0], /wrote _headers — \d+ headers on \/\*/);
+  });
+
+  it('names itself for the Astro integration list', () => {
+    assert.equal(integration().name, '@arraypress/security-headers');
   });
 });
