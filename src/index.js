@@ -145,11 +145,18 @@ export function buildHSTS(config = true) {
 export function buildHeaders(config = {}) {
   const {
     csp = {},
+    cspReportOnly = false,
     hsts = true,
     xContentTypeOptions = true,
     xFrameOptions = 'SAMEORIGIN',
     referrerPolicy = 'strict-origin-when-cross-origin',
     permissionsPolicy = 'camera=(), microphone=(), geolocation=()',
+    crossOriginOpenerPolicy = 'same-origin',
+    crossOriginEmbedderPolicy = false,
+    crossOriginResourcePolicy = false,
+    permittedCrossDomainPolicies = 'none',
+    originAgentCluster = false,
+    reportingEndpoints = null,
   } = config;
 
   const out = {};
@@ -157,7 +164,36 @@ export function buildHeaders(config = {}) {
   if (xFrameOptions !== false) out['X-Frame-Options'] = xFrameOptions;
   if (referrerPolicy !== false) out['Referrer-Policy'] = referrerPolicy;
   if (permissionsPolicy !== false) out['Permissions-Policy'] = permissionsPolicy;
+
+  /* Cross-origin isolation. COOP severs the opener relationship, which is the
+   * cheap half — it needs nothing from the resources you load, so it's on by
+   * default. COEP and CORP are off by default because they break third-party
+   * resources and cross-origin embedding of your own assets respectively;
+   * turn them on deliberately, together, when you actually need
+   * `crossOriginIsolated` for SharedArrayBuffer or wasm threads. */
+  if (crossOriginOpenerPolicy !== false) out['Cross-Origin-Opener-Policy'] = crossOriginOpenerPolicy;
+  if (crossOriginEmbedderPolicy !== false) out['Cross-Origin-Embedder-Policy'] = crossOriginEmbedderPolicy;
+  if (crossOriginResourcePolicy !== false) out['Cross-Origin-Resource-Policy'] = crossOriginResourcePolicy;
+
+  /* Stops Flash/Acrobat-era clients honouring a crossdomain.xml you never
+   * wrote. Costs nothing on a modern site and OWASP still asks for it. */
+  if (permittedCrossDomainPolicies !== false) {
+    out['X-Permitted-Cross-Domain-Policies'] = permittedCrossDomainPolicies;
+  }
+  if (originAgentCluster) out['Origin-Agent-Cluster'] = '?1';
+
+  if (reportingEndpoints) {
+    out['Reporting-Endpoints'] = Object.entries(reportingEndpoints)
+      .map(([name, url]) => `${name}="${url}"`)
+      .join(', ');
+  }
+
+  /* Report-Only carries the policy without enforcing it — the way to roll a
+   * CSP out on a site whose inline scripts you haven't finished auditing.
+   * Both headers may be sent at once: enforce a safe policy, trial a stricter
+   * one. */
   if (csp !== false) out['Content-Security-Policy'] = buildCSP(csp);
+  if (cspReportOnly !== false) out['Content-Security-Policy-Report-Only'] = buildCSP(cspReportOnly);
   if (hsts !== false) out['Strict-Transport-Security'] = buildHSTS(hsts);
   return out;
 }

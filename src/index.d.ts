@@ -94,6 +94,39 @@ export interface SecurityHeadersConfig {
   /** `Referrer-Policy` value. Pass `false` to skip. Default: `'strict-origin-when-cross-origin'`. */
   referrerPolicy?: string | false;
   /**
+   * A stricter CSP sent as `Content-Security-Policy-Report-Only` alongside the
+   * enforced one — the way to trial a policy before enforcing it. Default: `false`.
+   */
+  cspReportOnly?: CSPConfig | false;
+  /**
+   * `Cross-Origin-Opener-Policy`. Severs `window.opener` across origins,
+   * closing off cross-window attacks. Needs nothing from the resources you
+   * load, so it is on by default.
+   *
+   * Use `'same-origin-allow-popups'` if you rely on OAuth popups that talk
+   * back via `window.opener`. Default: `'same-origin'`.
+   */
+  crossOriginOpenerPolicy?: 'same-origin' | 'same-origin-allow-popups' | 'unsafe-none' | false;
+  /**
+   * `Cross-Origin-Embedder-Policy`. Off by default — it blocks every
+   * cross-origin resource that doesn't opt in, so enable it only when you
+   * need `crossOriginIsolated` (SharedArrayBuffer, wasm threads), and pair it
+   * with COOP `'same-origin'`.
+   */
+  crossOriginEmbedderPolicy?: 'require-corp' | 'credentialless' | 'unsafe-none' | false;
+  /**
+   * `Cross-Origin-Resource-Policy`. Off by default — `'same-origin'` stops
+   * other sites embedding your images and fonts, which is usually wanted but
+   * will also break any embed you do want. Default: `false`.
+   */
+  crossOriginResourcePolicy?: 'same-origin' | 'same-site' | 'cross-origin' | false;
+  /** `X-Permitted-Cross-Domain-Policies`. Default: `'none'`. */
+  permittedCrossDomainPolicies?: 'none' | 'master-only' | 'by-content-type' | 'all' | false;
+  /** Emit `Origin-Agent-Cluster: ?1`, hinting at origin-keyed isolation. Default: `false`. */
+  originAgentCluster?: boolean;
+  /** `Reporting-Endpoints` map, e.g. `{ csp: 'https://example.com/report' }`. */
+  reportingEndpoints?: Record<string, string> | null;
+  /**
    * `Permissions-Policy` value. Restricts access to browser features.
    * Pass `false` to skip.
    *

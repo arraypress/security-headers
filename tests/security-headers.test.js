@@ -137,6 +137,53 @@ describe('headersFile', () => {
   });
 });
 
+describe('cross-origin and legacy headers', () => {
+  it('sets COOP by default but not COEP or CORP', () => {
+    const h = buildHeaders();
+    assert.equal(h['Cross-Origin-Opener-Policy'], 'same-origin');
+    assert.equal(h['Cross-Origin-Embedder-Policy'], undefined);
+    assert.equal(h['Cross-Origin-Resource-Policy'], undefined);
+  });
+  /* COEP breaks every cross-origin resource that hasn't opted in, so it is
+   * only worth turning on when crossOriginIsolated is actually needed. */
+  it('enables the isolation pair on request', () => {
+    const h = buildHeaders({ crossOriginEmbedderPolicy: 'require-corp', crossOriginResourcePolicy: 'same-origin' });
+    assert.equal(h['Cross-Origin-Embedder-Policy'], 'require-corp');
+    assert.equal(h['Cross-Origin-Resource-Policy'], 'same-origin');
+  });
+  it('allows relaxing COOP for OAuth popups', () => {
+    assert.equal(buildHeaders({ crossOriginOpenerPolicy: 'same-origin-allow-popups' })['Cross-Origin-Opener-Policy'],
+      'same-origin-allow-popups');
+  });
+  it('sets X-Permitted-Cross-Domain-Policies to none by default', () => {
+    assert.equal(buildHeaders()['X-Permitted-Cross-Domain-Policies'], 'none');
+  });
+  it('omits Origin-Agent-Cluster unless asked', () => {
+    assert.equal(buildHeaders()['Origin-Agent-Cluster'], undefined);
+    assert.equal(buildHeaders({ originAgentCluster: true })['Origin-Agent-Cluster'], '?1');
+  });
+  it('skips any of them with false', () => {
+    const h = buildHeaders({ crossOriginOpenerPolicy: false, permittedCrossDomainPolicies: false });
+    assert.equal(h['Cross-Origin-Opener-Policy'], undefined);
+    assert.equal(h['X-Permitted-Cross-Domain-Policies'], undefined);
+  });
+});
+
+describe('CSP reporting', () => {
+  it('sends report-only alongside the enforced policy', () => {
+    const h = buildHeaders({ cspReportOnly: { defaultSrc: ["'none'"] } });
+    assert.ok(h['Content-Security-Policy'], 'enforced policy still present');
+    assert.ok(h['Content-Security-Policy-Report-Only'].includes("default-src 'none'"));
+  });
+  it('omits report-only by default', () => {
+    assert.equal(buildHeaders()['Content-Security-Policy-Report-Only'], undefined);
+  });
+  it('renders Reporting-Endpoints in the documented format', () => {
+    const h = buildHeaders({ reportingEndpoints: { csp: 'https://x.com/r', default: 'https://x.com/d' } });
+    assert.equal(h['Reporting-Endpoints'], 'csp="https://x.com/r", default="https://x.com/d"');
+  });
+});
+
 // ── Astro integration ──────────────────────────────────
 
 import integration from '../src/astro.js';

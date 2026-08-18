@@ -25,7 +25,7 @@ The integration writes `_headers` on `astro:build:done`, so there's no separate
 build script to remember. It logs what it wrote:
 
 ```
-[@arraypress/security-headers] wrote _headers — 5 headers on /*
+[@arraypress/security-headers] wrote _headers — 7 headers on /*
 ```
 
 ### Why a file and not middleware
@@ -44,7 +44,8 @@ protecting you from.
 
 So Astro owns CSP, and this owns what Astro doesn't do: HSTS,
 `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`,
-`X-Content-Type-Options`.
+`X-Content-Type-Options`, `Cross-Origin-Opener-Policy` and
+`X-Permitted-Cross-Domain-Policies`.
 
 Opt back in — for a host where Astro's CSP isn't in play:
 
@@ -91,21 +92,70 @@ header indented two spaces:
   X-Frame-Options: SAMEORIGIN
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Cross-Origin-Opener-Policy: same-origin
+  X-Permitted-Cross-Domain-Policies: none
+  Content-Security-Policy: default-src 'self'; script-src 'self'; …
   Strict-Transport-Security: max-age=31536000; includeSubDomains
 ```
+
+Under the Astro integration the CSP line is absent, since Astro owns it.
 
 ## Configuration
 
 | Option | Default | Notes |
 |---|---|---|
 | `csp` | strict defaults | `CSPConfig` or `false`. Defaults to `false` in the Astro integration. |
+| `cspReportOnly` | `false` | A stricter policy sent as `…-Report-Only`, to trial before enforcing. |
 | `hsts` | `true` | `HSTSConfig`, `true` for defaults, or `false` to skip. |
 | `xContentTypeOptions` | `true` | Emits `nosniff`. |
 | `xFrameOptions` | `'SAMEORIGIN'` | `'DENY'`, `'SAMEORIGIN'` or `false`. |
 | `referrerPolicy` | `'strict-origin-when-cross-origin'` | Any policy string, or `false`. |
 | `permissionsPolicy` | `camera=(), microphone=(), geolocation=()` | Any policy string, or `false`. |
+| `crossOriginOpenerPolicy` | `'same-origin'` | Use `'same-origin-allow-popups'` for OAuth popups. |
+| `crossOriginEmbedderPolicy` | `false` | `'require-corp'` / `'credentialless'`. See isolation below. |
+| `crossOriginResourcePolicy` | `false` | `'same-origin'` / `'same-site'` / `'cross-origin'`. |
+| `permittedCrossDomainPolicies` | `'none'` | Legacy Flash/Acrobat `crossdomain.xml` opt-out. |
+| `originAgentCluster` | `false` | Emits `Origin-Agent-Cluster: ?1`. |
+| `reportingEndpoints` | `null` | `{ csp: 'https://…' }` → `Reporting-Endpoints`. |
 
 Every header is independently togglable — pass `false` to skip it.
+
+### Cross-origin isolation
+
+`Cross-Origin-Opener-Policy` is on by default: it severs `window.opener` across
+origins and needs nothing from the resources you load, so it costs you nothing.
+The one gotcha is OAuth popups that talk back via `window.opener` — those want
+`'same-origin-allow-popups'`.
+
+`Cross-Origin-Embedder-Policy` and `Cross-Origin-Resource-Policy` are **off** by
+default, deliberately. COEP blocks every cross-origin resource that hasn't opted
+in, and CORP stops other sites embedding your images and fonts. Turn them on
+together, with COOP `'same-origin'`, when you actually need `crossOriginIsolated`
+— that is, `SharedArrayBuffer` or wasm threads:
+
+```js
+headers({
+  crossOriginOpenerPolicy: 'same-origin',
+  crossOriginEmbedderPolicy: 'require-corp',
+  crossOriginResourcePolicy: 'same-origin',
+})
+```
+
+An app using AudioWorklets or Workers does **not** need this on its own — only
+shared memory does.
+
+### Rolling out a CSP
+
+Send a strict policy as report-only alongside a permissive enforced one, watch
+the reports, then promote it:
+
+```js
+headers({
+  csp: { scriptSrc: ["'self'", "'unsafe-inline'"] },   // enforced today
+  cspReportOnly: { scriptSrc: ["'self'"] },             // the goal
+  reportingEndpoints: { csp: 'https://example.com/csp-report' },
+})
+```
 
 CSP directives are camelCase and become kebab-case on the wire:
 `defaultSrc`, `scriptSrc`, `styleSrc`, `imgSrc`, `fontSrc`, `connectSrc`,
