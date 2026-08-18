@@ -170,6 +170,45 @@ buildHeaders({
 });
 ```
 
+## Gotchas
+
+Two defaults are strict on purpose and will bite if your site is the exception.
+Both fail *silently* in the browser, so they're worth knowing before you deploy.
+
+### The microphone and camera are off
+
+`Permissions-Policy` defaults to `camera=(), microphone=(), geolocation=()`,
+which disables `getUserMedia()` outright — the call rejects, and nothing in your
+own code looks wrong. Right for a marketing or directory site; wrong for an app
+that records audio.
+
+```js
+// An app with a record-from-mic button:
+headers({ permissionsPolicy: 'camera=(), microphone=(self), geolocation=()' })
+```
+
+### The default CSP blocks Google Fonts
+
+`font-src` defaults to `'self'` and `style-src` to `'self' 'unsafe-inline'`, so
+a `<link>` to `fonts.googleapis.com` and the files it pulls from
+`fonts.gstatic.com` are both blocked:
+
+```js
+headers({
+  csp: {
+    styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+    fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+  },
+})
+```
+
+The same applies to any third-party origin — analytics, embeds, a CDN. The
+default assumes a site that serves everything itself; add origins as you add
+dependencies rather than loosening `default-src`.
+
+This one doesn't arise under the Astro integration, where CSP is off and Astro
+owns the policy.
+
 ## Security notes
 
 `X-Frame-Options` is superseded by CSP's `frame-ancestors` but is still emitted

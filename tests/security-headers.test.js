@@ -237,3 +237,34 @@ describe('astro integration', () => {
     assert.equal(integration().name, '@arraypress/security-headers');
   });
 });
+
+// ── Documented escape hatches ──────────────────────────
+//
+// The strict defaults break two things a real site tends to need. These assert
+// the fixes the README gives actually work, so the docs can't drift from them.
+
+describe('gotcha: microphone access', () => {
+  it('blocks getUserMedia by default', () => {
+    assert.match(buildHeaders()['Permissions-Policy'], /microphone=\(\)/);
+  });
+  it('can be reopened for an app that records', () => {
+    const h = buildHeaders({ permissionsPolicy: 'camera=(), microphone=(self), geolocation=()' });
+    assert.match(h['Permissions-Policy'], /microphone=\(self\)/);
+  });
+});
+
+describe('gotcha: Google Fonts', () => {
+  it('blocks them by default', () => {
+    const csp = buildCSP();
+    assert.ok(!csp.includes('fonts.googleapis.com'));
+    assert.ok(!csp.includes('fonts.gstatic.com'));
+  });
+  it('allows them when both directives are extended', () => {
+    const csp = buildCSP({
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+    });
+    assert.match(csp, /style-src[^;]*https:\/\/fonts\.googleapis\.com/);
+    assert.match(csp, /font-src[^;]*https:\/\/fonts\.gstatic\.com/);
+  });
+});
