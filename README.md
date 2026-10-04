@@ -104,6 +104,37 @@ the browser they fail silently:
 - inline event handlers — `onclick="…"`. Move them into a script.
 - `href="javascript:…"` links.
 
+### Keeping a big site under the line limit
+
+The CSP is one `_headers` line and Cloudflare caps a line at 2,000 characters,
+so what matters is how many DISTINCT inline blocks the build emits. Measured on
+a 241-page store theme: 90 inline scripts and 27 inline styles, a 6,732-char
+line. Two changes took it to 13 and 9, and 1,621:
+
+- **`vite: { build: { assetsInlineLimit: 0 } }`** — Astro inlines small
+  bundled scripts and stylesheets, each its own hash. This emits them as
+  cacheable files instead.
+- **Pass per-page data through an attribute, not `define:vars`.**
+  `define:vars` writes the value into the script text, so a product slug makes
+  every product page a new hash. Read it from the element instead and the text
+  is identical everywhere:
+
+  ```astro
+  <script is:inline data-slug={product.id}>
+    const slug = document.currentScript.dataset.slug;
+  </script>
+  ```
+
+### Libraries that need a nudge
+
+- **Anything that injects `<style>` elements at runtime is blocked.** ApexCharts
+  does by default: set `chart: { injectStyleSheet: false }` and import
+  `apexcharts/dist/apexcharts.css` (+ `apexcharts-legend.css`) yourself.
+- **WebAssembly needs `'wasm-unsafe-eval'`** — Pagefind's search, for one.
+  It allows compiling wasm, not JavaScript `eval()`, and it's a keyword, so it
+  belongs in your config (`scriptSrc: ["'self'", "'wasm-unsafe-eval'"]`), not
+  in a `data-csp` declaration, which only ever accepts hosts.
+
 ### Limits
 
 - **Cloudflare caps each `_headers` line at 2,000 characters**, and the CSP is
