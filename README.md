@@ -111,6 +111,10 @@ the browser they fail silently:
   is `build.inlineStylesheets: 'never'`, which moves component CSS out of
   inline `<style>` blocks into files.
 - **Vercel doesn't read `_headers`.** Cloudflare Pages and Netlify do.
+- **A URL that redirects to another host is blocked at the redirect.** The scan
+  allows the host written in the HTML; CSP checks every hop. Link the final
+  host directly — e.g. `maps.google.com/maps?…&output=embed` 301s to
+  `www.google.com`, so embed `www.google.com/maps?…` instead.
 - A `_headers` already in the build (copied from `public/`) is kept and this is
   appended to it. If both set the same header, the build says so — both would
   be sent.
