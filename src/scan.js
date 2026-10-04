@@ -11,7 +11,8 @@
  *      flash-guard, the reveal bootstrap or a component's inline styles.
  *   2. FIND every third-party origin the pages load from (scripts,
  *      stylesheets, fonts, frames, form endpoints, media) and allow exactly
- *      those, plus the hosts known providers talk back to.
+ *      those, plus the hosts known providers talk back to, plus any a
+ *      component declares with `data-csp` for what it loads at runtime.
  *
  * Why site-wide rather than per page: the hashes are unioned across every
  * page into ONE policy. That is what lets this coexist with Astro's
@@ -65,6 +66,24 @@ export const PROVIDERS = [
 	/* Cloudflare Turnstile renders its challenge in a frame. */
 	{ match: 'https://challenges.cloudflare.com', add: { frameSrc: ['https://challenges.cloudflare.com'] } },
 ];
+
+/**
+ * Directives a `data-csp` declaration may add to. Kebab-case on the wire,
+ * camelCase in the result.
+ */
+const DECLARABLE = {
+	'script-src': 'scriptSrc',
+	'style-src': 'styleSrc',
+	'font-src': 'fontSrc',
+	'img-src': 'imgSrc',
+	'media-src': 'mediaSrc',
+	'frame-src': 'frameSrc',
+	'form-action': 'formAction',
+	'connect-src': 'connectSrc',
+};
+
+/** An https origin, optionally with a leading `*.` wildcard. Nothing else. */
+const DECLARED_SOURCE = /^https:\/\/(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?\/?$/i;
 
 /** Script `type`s the browser executes, and so the ones `script-src` governs. */
 const EXECUTABLE = new Set(['', 'text/javascript', 'application/javascript', 'module', 'importmap', 'speculationrules']);
@@ -121,9 +140,11 @@ function emptyScan() {
 			mediaSrc: new Set(),
 			frameSrc: new Set(),
 			formAction: new Set(),
+			connectSrc: new Set(),
 		},
 		handlers: 0,
 		jsUrls: 0,
+		badDeclarations: [],
 	};
 }
 
@@ -189,6 +210,28 @@ export function scanHtml(html, { algorithm = 'sha256' } = {}) {
 			add('mediaSrc', attr(attrs, 'src'));
 		}
 
+		/* A component that frames or fetches a host only at RUNTIME declares it
+		   on its own element — `data-csp="frame-src https://www.youtube-nocookie.com"`
+		   — because the scan can't see a URL that only exists once someone
+		   clicks. Only https origins are accepted: a declaration can widen the
+		   policy to a host, never to a keyword like 'unsafe-inline'. */
+		const declared = attr(attrs, 'data-csp');
+		if (declared) {
+			for (const part of declared.split(';')) {
+				const [directive, ...values] = part.trim().split(/\s+/);
+				if (!directive) continue;
+				const key = DECLARABLE[directive.toLowerCase()];
+				if (!key || !values.length) {
+					out.badDeclarations.push(part.trim());
+					continue;
+				}
+				for (const v of values) {
+					if (DECLARED_SOURCE.test(v)) out.sources[key].add(v.replace(/\/$/, ''));
+					else out.badDeclarations.push(`${directive} ${v}`);
+				}
+			}
+		}
+
 		/* Things a hash-based policy will block and nothing can allow short of
 		   'unsafe-inline' — counted so the build can say so out loud. */
 		if (/\son[a-z]+\s*=/i.test(tag.slice(name.length + 1))) out.handlers++;
@@ -213,6 +256,7 @@ export function mergeScans(scans) {
 		for (const [k, set] of Object.entries(s.sources)) for (const o of set) out.sources[k].add(o);
 		out.handlers += s.handlers;
 		out.jsUrls += s.jsUrls;
+		for (const b of s.badDeclarations) if (!out.badDeclarations.includes(b)) out.badDeclarations.push(b);
 	}
 	return out;
 }

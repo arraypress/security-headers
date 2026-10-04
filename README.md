@@ -53,8 +53,26 @@ It scans every built `.html` file and writes one site-wide policy:
 So turning on an analytics provider or pointing a form at Formspree needs no
 CSP edit: rebuild, and it's in the policy.
 
-What the scan can't see, you add. Arrays you pass are the base and the scan's
-findings go on top:
+### Hosts that only exist at runtime: `data-csp`
+
+The scan reads HTML, so it can't see a URL a script builds after the page
+loads — a video player that sets its iframe `src` on click, a live follower
+count that `fetch`es an API. The component that does it declares the host on
+its own element instead:
+
+```html
+<section data-csp="frame-src https://www.youtube-nocookie.com">…</section>
+<div data-csp="connect-src https://api.github.com https://public.api.bsky.app">…</div>
+```
+
+The declaration sits next to the code that needs it, so the two can't drift,
+and only pages that render the component widen the policy. Values must be
+plain `https://` origins (a leading `*.` is allowed); keywords such as
+`'unsafe-inline'`, paths and unknown directives are refused, and the build
+lists anything it ignored.
+
+What neither the scan nor a component can know, you add. Arrays you pass are
+the base and the scan's findings go on top:
 
 ```js
 headers({

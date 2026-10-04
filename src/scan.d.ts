@@ -22,11 +22,19 @@ export interface ScanResult {
     mediaSrc: Set<string>;
     frameSrc: Set<string>;
     formAction: Set<string>;
+    /** Only ever filled by a `data-csp` declaration — fetches aren't in HTML. */
+    connectSrc: Set<string>;
   };
   /** Elements carrying an inline `on*=` handler — a hash policy blocks these. */
   handlers: number;
   /** `href="javascript:…"` links — also blocked. */
   jsUrls: number;
+  /**
+   * `data-csp` entries that were ignored: an unknown directive, or a value
+   * that isn't a plain https origin (keywords like `'unsafe-inline'` are
+   * refused on purpose).
+   */
+  badDeclarations: string[];
 }
 
 export interface ScanOptions {

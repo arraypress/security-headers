@@ -80,6 +80,9 @@ export default function securityHeadersIntegration(config = {}, options = {}) {
 					   at build time because in the browser they fail silently. */
 					if (scan.handlers) logger.warn(`${scan.handlers} element(s) use an inline on*= handler — the CSP will block them. Move them into a script.`);
 					if (scan.jsUrls) logger.warn(`${scan.jsUrls} link(s) use href="javascript:" — the CSP will block them.`);
+					if (scan.badDeclarations.length) {
+						logger.warn(`ignored data-csp value(s) — only https origins on fetch/frame/media directives are accepted: ${scan.badDeclarations.join(', ')}`);
+					}
 				}
 
 				let body = headersFile(resolved, { path, ...rest });

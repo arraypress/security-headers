@@ -118,6 +118,33 @@ describe('scanHtml origins', () => {
 	});
 });
 
+// ── data-csp declarations ──────────────────────────────
+
+describe('data-csp', () => {
+	it('adds what a component declares for runtime loads', () => {
+		const s = scanHtml('<section data-csp="frame-src https://www.youtube-nocookie.com; connect-src https://api.github.com https://*.bsky.app">');
+		assert.deepEqual([...s.sources.frameSrc], ['https://www.youtube-nocookie.com']);
+		assert.deepEqual([...s.sources.connectSrc], ['https://api.github.com', 'https://*.bsky.app']);
+		assert.deepEqual(s.badDeclarations, []);
+	});
+
+	it('normalises a trailing slash', () => {
+		const s = scanHtml('<div data-csp="connect-src https://mastodon.social/">');
+		assert.deepEqual([...s.sources.connectSrc], ['https://mastodon.social']);
+	});
+
+	it("refuses keywords, paths, http and unknown directives", () => {
+		const s = scanHtml(`<div data-csp="script-src 'unsafe-inline' https://a.com/x.js http://b.com; sandbox allow-scripts; frame-src">`);
+		assert.equal(s.sources.scriptSrc.size, 0);
+		assert.deepEqual(s.badDeclarations, ["script-src 'unsafe-inline'", 'script-src https://a.com/x.js', 'script-src http://b.com', 'sandbox allow-scripts', 'frame-src']);
+	});
+
+	it('reaches the policy through autoCsp', () => {
+		const c = buildCSP(autoCsp(scanHtml('<button data-csp="frame-src https://www.youtube-nocookie.com">')));
+		assert.match(c, /frame-src 'self' https:\/\/www\.youtube-nocookie\.com/);
+	});
+});
+
 // ── merging + directories ──────────────────────────────
 
 describe('mergeScans / scanDir', () => {
