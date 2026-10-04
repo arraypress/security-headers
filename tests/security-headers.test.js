@@ -187,19 +187,25 @@ describe('CSP reporting', () => {
 // ── Astro integration ──────────────────────────────────
 
 import integration from '../src/astro.js';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-/** Run the integration's build:done hook against a throwaway directory. */
-function runBuild(config, options) {
-  const dir = pathToFileURL(join(mkdtempSync(join(tmpdir(), 'sh-')), '/'));
+/**
+ * Run the integration's build:done hook against a throwaway directory,
+ * optionally seeded with files (a built page, a `_headers` from public/).
+ */
+function runBuild(config, options, files = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'sh-'));
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(root, name), text);
+  const dir = pathToFileURL(join(root, '/'));
   const logs = [];
+  const warnings = [];
   const it = integration(config, options);
-  it.hooks['astro:build:done']({ dir, logger: { info: (m) => logs.push(m) } });
+  it.hooks['astro:build:done']({ dir, logger: { info: (m) => logs.push(m), warn: (m) => warnings.push(m) } });
   const name = options?.filename ?? '_headers';
-  return { body: readFileSync(new URL(name, dir), 'utf8'), logs };
+  return { body: readFileSync(new URL(name, dir), 'utf8'), logs, warnings };
 }
 
 describe('astro integration', () => {
@@ -231,6 +237,43 @@ describe('astro integration', () => {
   it('reports what it wrote', () => {
     const { logs } = runBuild();
     assert.match(logs[0], /wrote _headers — \d+ headers on \/\*/);
+  });
+
+  it("csp: 'auto' hashes the built pages' inline code", () => {
+    const { body, logs } = runBuild({ csp: 'auto' }, {}, { 'index.html': '<script>boot()</script><style>a{}</style>' });
+    assert.match(body, /Content-Security-Policy: [^\n]*script-src 'self' 'sha256-/);
+    assert.match(body, /style-src-attr 'unsafe-inline'/);
+    assert.match(logs[0], /CSP from 1 pages — 1 inline script hash, 1 inline style hash, 0 third-party origins/);
+  });
+
+  it("cspReportOnly: 'auto' trials the same policy without enforcing it", () => {
+    const { body } = runBuild({ cspReportOnly: 'auto' }, {}, { 'index.html': '<script>boot()</script>' });
+    assert.match(body, /Content-Security-Policy-Report-Only: [^\n]*'sha256-/);
+    assert.doesNotMatch(body, /Content-Security-Policy: /);
+  });
+
+  it('warns about inline handlers the policy will block', () => {
+    const { warnings } = runBuild({ csp: 'auto' }, {}, { 'index.html': '<button onclick="x()">x</button>' });
+    assert.match(warnings[0], /1 element\(s\) use an inline on\*= handler/);
+  });
+
+  /* Astro copies public/_headers into the build first; cache rules in it must
+   * survive. */
+  it('appends to a _headers already in the build', () => {
+    const { body, warnings } = runBuild({}, {}, { _headers: '/_astro/*\n  Cache-Control: public, max-age=31536000, immutable\n' });
+    assert.match(body, /^\/_astro\/\*\n  Cache-Control: [^\n]+\n\n\/\*\n/);
+    assert.equal(warnings.length, 0);
+  });
+
+  it('warns when public/_headers sets a header it also writes', () => {
+    const { warnings } = runBuild({}, {}, { _headers: '/*\n  X-Frame-Options: DENY\n' });
+    assert.match(warnings[0], /already sets X-Frame-Options/);
+  });
+
+  it("warns past Cloudflare's 2,000-character line limit", () => {
+    const pages = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`p${i}.html`, `<script>f${i}()</script>`]));
+    const { warnings } = runBuild({ csp: 'auto' }, {}, pages);
+    assert.ok(warnings.some((w) => /exceed Cloudflare's 2000-character/.test(w)));
   });
 
   it('names itself for the Astro integration list', () => {

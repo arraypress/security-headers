@@ -1,7 +1,7 @@
 {
   "name": "@arraypress/security-headers",
-  "version": "2.0.0",
-  "description": "Security response headers for static hosts \u2014 CSP, HSTS, X-Frame-Options, Referrer-Policy, Permissions-Policy. Generates a Cloudflare/Netlify _headers file, with an Astro integration. Zero dependencies.",
+  "version": "2.1.0",
+  "description": "Security response headers for static hosts — CSP, HSTS, X-Frame-Options, Referrer-Policy, Permissions-Policy. Generates a Cloudflare/Netlify _headers file, with an Astro integration that derives a strict, hash-based CSP from the finished build. Zero dependencies.",
   "type": "module",
   "main": "src/index.js",
   "types": "src/index.d.ts",
@@ -9,6 +9,10 @@
     ".": {
       "import": "./src/index.js",
       "types": "./src/index.d.ts"
+    },
+    "./scan": {
+      "import": "./src/scan.js",
+      "types": "./src/scan.d.ts"
     },
     "./astro": {
       "import": "./src/astro.js",
@@ -31,7 +35,9 @@
     "netlify",
     "astro",
     "astro-integration",
-    "_headers"
+    "_headers",
+    "csp-hash",
+    "content-security-policy"
   ],
   "author": "David Sherlock",
   "license": "MIT",

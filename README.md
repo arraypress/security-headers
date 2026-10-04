@@ -1,6 +1,6 @@
 # @arraypress/security-headers
 
-> Security response headers for static hosts — CSP, HSTS, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`. Generates a Cloudflare/Netlify `_headers` file, with an Astro integration. Zero dependencies.
+> Security response headers for static hosts — CSP, HSTS, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`. Generates a Cloudflare/Netlify `_headers` file, with an Astro integration that derives a strict, hash-based CSP from the finished build. Zero dependencies.
 
 ## Install
 
@@ -16,17 +16,86 @@ import { defineConfig } from 'astro/config';
 import headers from '@arraypress/security-headers/astro';
 
 export default defineConfig({
-  security: { csp: true },    // Astro owns CSP — see below
-  integrations: [headers()],   // everything else, written to dist/_headers
+  integrations: [headers({ csp: 'auto' })],
 });
 ```
 
 The integration writes `_headers` on `astro:build:done`, so there's no separate
-build script to remember. It logs what it wrote:
+build script to remember. With `csp: 'auto'` it reads the finished pages first:
 
 ```
-[@arraypress/security-headers] wrote _headers — 7 headers on /*
+[@arraypress/security-headers] CSP from 50 pages — 5 inline script hashes, 8 inline style hashes, 1 third-party origin (https://fonts.googleapis.com)
+[@arraypress/security-headers] wrote _headers — 8 headers on /*
 ```
+
+### What `csp: 'auto'` does
+
+It scans every built `.html` file and writes one site-wide policy:
+
+- **Hashes every inline `<script>` and `<style>`**, so `script-src` needs no
+  `'unsafe-inline'` — the theme flash-guard, a `define:vars` block and a
+  component's inline styles all keep working. JSON-LD isn't hashed; data
+  blocks don't execute.
+- **Allows exactly the third-party origins the pages load from**: script and
+  stylesheet URLs, font preloads, iframes, form `action`s, media. Including
+  scripts an inline *loader* injects (`createElement('script')` + `.src = '…'`,
+  the pattern analytics snippets use), which never appear as a tag in the HTML.
+- **Adds the hosts known providers talk back to** that the page never names:
+  Google Fonts' `fonts.gstatic.com`, GA4's collection hosts, Cloudflare Web
+  Analytics, Simple Analytics, GoatCounter, Umami Cloud, Turnstile's frame.
+  Every third-party script origin also gets `connect-src` — a script you
+  already run can reach its own origin anyway — which covers any tracker
+  that beacons home, self-hosted ones included.
+- **Allows `style=""` attributes** (`style-src-attr 'unsafe-inline'`). Hashes
+  can't cover attributes, every component-driven site has them, and an
+  attribute can't run script.
+
+So turning on an analytics provider or pointing a form at Formspree needs no
+CSP edit: rebuild, and it's in the policy.
+
+What the scan can't see, you add. Arrays you pass are the base and the scan's
+findings go on top:
+
+```js
+headers({
+  csp: { auto: true, connectSrc: ["'self'", 'https://api.example.com'] },
+})
+```
+
+Trial it before enforcing with `cspReportOnly: 'auto'`, which sends the same
+policy as `Content-Security-Policy-Report-Only`.
+
+### Why not Astro's `security.csp`
+
+Astro's own CSP is a per-page `<meta>` tag, and it doesn't support
+`<ClientRouter />`. The router swaps pages in without a reload, so the policy
+the visitor's *first* page arrived with must cover the inline code of every
+page they reach after it — a per-page policy can't. `'auto'` unions the hashes
+across the whole build into one header, so a soft navigation never lands on
+code the policy doesn't know. It also runs as a real HTTP header, which a
+`<meta>` CSP can't fully replace (`frame-ancestors` is ignored in `<meta>`).
+
+If you're not using the router, Astro's `security.csp` is a fine choice: leave
+`csp` at its default `false` here and this writes everything else.
+
+### What a hash policy blocks
+
+Two things no hash can allow. The build warns if it finds either, because in
+the browser they fail silently:
+
+- inline event handlers — `onclick="…"`. Move them into a script.
+- `href="javascript:…"` links.
+
+### Limits
+
+- **Cloudflare caps each `_headers` line at 2,000 characters**, and the CSP is
+  one line. Each hash costs ~54. The build warns past the limit; the usual fix
+  is `build.inlineStylesheets: 'never'`, which moves component CSS out of
+  inline `<style>` blocks into files.
+- **Vercel doesn't read `_headers`.** Cloudflare Pages and Netlify do.
+- A `_headers` already in the build (copied from `public/`) is kept and this is
+  appended to it. If both set the same header, the build says so — both would
+  be sent.
 
 ### Why a file and not middleware
 
@@ -34,35 +103,34 @@ On Cloudflare, a static-assets deploy with no server script serves requests for
 free. Adding middleware to set headers adds a script and makes every request
 billable. `_headers` is applied at the edge for nothing.
 
-### Why CSP defaults to off here
-
-Astro has its own `security.csp`, and it can hash the inline `<script>` and
-`<style>` blocks Astro itself emits — the theme flash-guard, scoped component
-styles. A static `_headers` file can't hash them, so expressing the same policy
-there means `'unsafe-inline'` on both directives, which is most of what CSP was
-protecting you from.
-
-So Astro owns CSP, and this owns what Astro doesn't do: HSTS,
-`X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`,
-`X-Content-Type-Options`, `Cross-Origin-Opener-Policy` and
-`X-Permitted-Cross-Domain-Policies`.
-
-Opt back in — for a host where Astro's CSP isn't in play:
-
-```js
-integrations: [headers({ csp: { defaultSrc: ["'self'"] } })]
-```
-
 ### Options
 
 `headers(config?, options?)`
 
-- `config` — a `SecurityHeadersConfig` (below). `csp` defaults to `false` here.
+- `config` — a `SecurityHeadersConfig` (below), where `csp` and
+  `cspReportOnly` also accept `'auto'` or `{ auto: true, … }`. `csp` defaults
+  to `false` here.
 - `options.path` — path pattern the headers apply to. Default `'/*'`.
 - `options.filename` — output name. Default `'_headers'`.
 
 Cloudflare caps a `_headers` file at 100 rules; one path costs one rule however
 many headers it carries.
+
+### The scanner on its own
+
+`@arraypress/security-headers/scan` is the same machinery without Astro —
+point it at any static build:
+
+```js
+import { scanDir, autoCsp } from '@arraypress/security-headers/scan';
+import { headersFile } from '@arraypress/security-headers';
+
+const csp = autoCsp(scanDir('dist'));
+writeFileSync('dist/_headers', headersFile({ csp }));
+```
+
+`scanHtml(html)`, `mergeScans(scans)`, `hashSource(text)` and the `PROVIDERS`
+table are exported too. Node only.
 
 ## Anywhere else
 
@@ -98,7 +166,7 @@ header indented two spaces:
   Strict-Transport-Security: max-age=31536000; includeSubDomains
 ```
 
-Under the Astro integration the CSP line is absent, since Astro owns it.
+Under the Astro integration the CSP line is absent unless you set `csp` — `'auto'` is the usual choice.
 
 ## Configuration
 
@@ -206,8 +274,8 @@ The same applies to any third-party origin — analytics, embeds, a CDN. The
 default assumes a site that serves everything itself; add origins as you add
 dependencies rather than loosening `default-src`.
 
-This one doesn't arise under the Astro integration, where CSP is off and Astro
-owns the policy.
+Under the Astro integration's `csp: 'auto'` this one doesn't arise — the scan
+finds the stylesheet and adds `fonts.gstatic.com` itself.
 
 ## Security notes
 

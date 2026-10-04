@@ -16,6 +16,8 @@ export interface CSPConfig {
   defaultSrc?: string[];
   /** `script-src`. Default: `["'self'"]`. */
   scriptSrc?: string[];
+  /** `script-src-attr` — inline `on*=""` handlers. No default (falls back to `script-src`). */
+  scriptSrcAttr?: string[];
   /**
    * `style-src`. Default: `["'self'", "'unsafe-inline'"]`.
    *
@@ -24,14 +26,26 @@ export interface CSPConfig {
    * doesn't use either, drop it: `styleSrc: ["'self'"]`.
    */
   styleSrc?: string[];
+  /**
+   * `style-src-attr` — `style=""` attributes. No default (falls back to
+   * `style-src`). The `/scan` auto mode sets `["'unsafe-inline'"]`, since
+   * hashes can't cover attributes.
+   */
+  styleSrcAttr?: string[];
   /** `img-src`. Default: `["'self'", 'data:', 'https:']` (allow HTTPS images + bundled data URIs). */
   imgSrc?: string[];
   /** `font-src`. Default: `["'self'"]`. */
   fontSrc?: string[];
+  /** `media-src` — `<video>` / `<audio>` sources. No default (falls back to `default-src`). */
+  mediaSrc?: string[];
   /** `connect-src` — XHR/fetch targets. Default: `["'self'"]`. */
   connectSrc?: string[];
   /** `frame-src` — iframe sources. Default: `["'self'"]`. Add CAPTCHA CDNs here. */
   frameSrc?: string[];
+  /** `worker-src`. No default (falls back to `script-src`). */
+  workerSrc?: string[];
+  /** `manifest-src`. No default (falls back to `default-src`). */
+  manifestSrc?: string[];
   /** `form-action`. Default: `["'self'"]`. */
   formAction?: string[];
   /** `base-uri`. Default: `["'self'"]`. */
@@ -148,6 +162,9 @@ export interface SecurityHeadersConfig {
  * @returns The serialised header value.
  */
 export function buildCSP(config?: CSPConfig): string;
+
+/** The CSP defaults `buildCSP` starts from. Frozen. */
+export const cspDefaults: Readonly<CSPConfig>;
 
 /**
  * Build a Strict-Transport-Security header string.

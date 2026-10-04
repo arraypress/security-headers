@@ -24,7 +24,7 @@
  * independently via the `csp` config. Arrays replace — they don't merge
  * — so `{ scriptSrc: ["'self'"] }` drops the CSP back to bare bones.
  */
-const CSP_DEFAULTS = {
+export const cspDefaults = Object.freeze({
   defaultSrc: ["'self'"],
   scriptSrc: ["'self'"],
   styleSrc: ["'self'", "'unsafe-inline'"],
@@ -37,17 +37,22 @@ const CSP_DEFAULTS = {
   objectSrc: ["'none'"],
   frameAncestors: ["'self'"],
   upgradeInsecureRequests: true,
-};
+});
 
 /** Map camelCase directive names → kebab-case wire format. */
 const DIRECTIVE_NAMES = {
   defaultSrc: 'default-src',
   scriptSrc: 'script-src',
+  scriptSrcAttr: 'script-src-attr',
   styleSrc: 'style-src',
+  styleSrcAttr: 'style-src-attr',
   imgSrc: 'img-src',
   fontSrc: 'font-src',
+  mediaSrc: 'media-src',
   connectSrc: 'connect-src',
   frameSrc: 'frame-src',
+  workerSrc: 'worker-src',
+  manifestSrc: 'manifest-src',
   formAction: 'form-action',
   baseUri: 'base-uri',
   objectSrc: 'object-src',
@@ -63,7 +68,7 @@ const HSTS_DEFAULTS = {
 /**
  * Build a Content-Security-Policy header string from a config object.
  *
- * Every directive has a safe default from `CSP_DEFAULTS`. Pass only the
+ * Every directive has a safe default from `cspDefaults`. Pass only the
  * fields you want to override — the rest inherit the defaults. Arrays
  * replace (they don't merge), so `scriptSrc: ["'self'", turnstile]` is
  * how you'd allow the Cloudflare Turnstile widget.
@@ -83,7 +88,7 @@ const HSTS_DEFAULTS = {
  * // → "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; ..."
  */
 export function buildCSP(config = {}) {
-  const merged = { ...CSP_DEFAULTS, ...config };
+  const merged = { ...cspDefaults, ...config };
   const parts = [];
 
   for (const [key, wireName] of Object.entries(DIRECTIVE_NAMES)) {
